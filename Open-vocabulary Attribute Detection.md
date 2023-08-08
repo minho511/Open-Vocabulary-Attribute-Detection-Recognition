@@ -9,7 +9,7 @@ ___
 - Open-vocabulary Attribute Detection [CVPR 2023]
 - OvarNet: Towards Open-vocabulary Object Attribute Recognition [CVPR 2023]
 
-| **목표: 영상내에서 Open-set의 오브젝트를 검출하고, 오브젝트 단위로 Open-set의 속성을 인식하도록 모델을 학습시키는 것.**
+> **목표: 영상내에서 Open-set의 오브젝트를 검출하고, 오브젝트 단위로 Open-set의 속성을 인식하도록 모델을 학습시키는 것.**
 
 이 글에서는 Open-vocabulary Attribute Detection의 필요성을 주장하면서 새로운 benchmark를 제시하는 Open-vocabulary Attribute Detection 논문을 리뷰한다.
 
@@ -32,10 +32,10 @@ ___
 
 줄여서 OVAD는 두 단계로 이루어진다.  
 1.  Open-vocabulary Object Detection - image 내에서 `novel` objects를 포함한 모든 object를 찾아낸다.  
-| `novel` object는 학습동안 bounding box와 class annotation이 주어지지 않는 셋을 뜻한다.
+> `novel` object는 학습동안 bounding box와 class annotation이 주어지지 않는 셋을 뜻한다.
 
 2. 각각의 검출된 object에 존재하는 모든 attribute를 결정.  
-| attribute annotation은 존재하지 않고, 따라서 모든 attribute는 `novel`셋이다.
+> attribute annotation은 존재하지 않고, 따라서 모든 attribute는 `novel`셋이다.
 
 ___
 ## Related Works
@@ -106,8 +106,132 @@ open-domain setting (=in-the-wild setting)에서 attribute를 예측하는 최�
     - object category 수를 포함하여 이미지 데이터가 많지만, attribute category가 15개로 제한적이다.
 
 
-| 이 논문에서는 명확하고 밀도있는 attribute annotation 과 함께 attribute detection을 위한 새로운 evaluation benchmark를 제안한다.
+> 이 논문에서는 명확하고 밀도있는 attribute annotation 과 함께 attribute detection을 위한 새로운 evaluation benchmark를 제안한다.
 
 ### Open-vocabulary Methods
 ### Vision-language Models
+
+___
+## Open-vocabulary Attribute Detection
+
+</br>
+
+### OVAD Task란
+
+</br>
+
+OVAD Task는 두가지 목표를 갖는다.  
+
+    (1) object detection  
+    (2) discovery of attributes for all detected objects    
+
+둘다 Open-vocabulary setting에서 진행된다.
+
+(1)은 Open-vocabulary Object detection (OVD)로 알려져있다. (생략)
+
+(2)에서는 학습중에 어떤 attribute도 알려지지 않는다. 모든 attribute들은 반드시 image-caption 쌍 또는 사전학습된 vision-language 모델로 부터 유도 되어야한다.
+
+오직 test time에만 시험되는 visual attributes A가 주어진다.
+
+> 모델을 설계할 때에 attribute classes의 tested set의 정보를 사용하는 것은 이 task의 정의에 위배된다.
+
+</br>
+
+> OVAD task를 해결하기 위해서는 $O^B$ 와 unbounded $O^N$ 를 모두 detect 하는 능력 뿐만아니라 tested attribute set $A$로 부터 어떤 attribute가 존재하고 부재되었는지를 모든 object에 대해서 결정할 수 있는 능력이 요구된다.
+
+___
+## Baseline Method
+
+- 두가지의 모델을 사용
+
+    </br>
+
+    - a frozen language model $G$
+        - CLIP 모델을 사용함.
+        - text embedding : $g_w = G(w)$  
+        (text는 하나 또는 더 많은 단어들 $w$ 로 구성됨.)
+
+        </br>
+
+    - object detector $F$ based on Faster-RCNN
+        - classification head를 linear layer로 바꾸어 $G$ 로부터 생성된 language space에 visual feature를 projection할 수 있도록 함.
+        - visual embedding : $f_b = F(I_b)$  
+        (image $I$ 의 box region $b$)
+    
+- Visual-text matching
+
+    - vision language alignment를 위해 image-text pairs를 사용. 
+    - image-text pairs는 서로 대응되는 images와 captions, box-regions와 class labels 또는  
+        더 일반적인 setting, 모든 box-region과 text
+    - text $w$ 와 box-region $b$ 의 matching score 계산을 위해 cosine similarity 를 사용.
+
+    $$s_{w, b} = \sigma({{g_w {\cdot} f_b} \over {|g_w||f_b|}}{\cdot} {\tau})$$
+
+- Training objectives
+
+    - detector $F$는 세가지 objectives로 학습됨.
+
+            1. image내의 object를 localization하는 것을 학습
+            2. image representation과 caption embedding을 의미적으로 매칭하는 것을 학습.
+            3. noel class와 attribute에 대한 예측이 가능하도록 하기 위해 proxy-labels와 함께 
+               classifier branch를 학습.
+
+    </br>
+
+    1. image내의 object를 localization하는 것을 학습
+    
+        
+        - detecot $F$ 학습을 위해, $O^B$ 의 label과 bounding box를 사용.
+        - 기본적인 detection loss $L_{det}$ 를 사용. (faster R-CNN)
+        
+        $$L_{det} = L_{rpn} + L_{reg} + L_{cls}$$
+
+        > $L_{rpn}$ : region proposal network loss  
+
+        > $L_{reg}$ : class-agnostic $l_1$ loss  
+
+        > $L_{cls}$ : similarity based classification loss  
+          binary cross-entropy loss over the similarity score between the visual embedding of the object box and the text embedding of the base classes.)
+        
+    2. image representation과 caption embedding을 의미적으로 매칭하는 것을 학습.
+
+        $$L_{ITC} = -(ylog(s_{C,I}) + (1-y)log(1-s_{C,I}))$$
+
+        > $s_{C,I}$ : image $I$ 와 caption $C$ 의 similarity score  
+        > $y {\in} \{1, 0\}$ : $I$ 와 $C$ 가 positive pair인지 아닌지.
+
+    3. novel class와 attribute에 대한 예측이 가능하도록 하기 위해 proxy-labels와 함께 classifier branch를 학습.
+
+        caption 내의 concept들을 image region과 매칭. -> 이 concpet들을 **"Part of caption"** 으로 부르기로함.(명사, 명사구, 명사 보어를 포함)
+
+        **이 caption의 부분 (명사, 명사구, 명사 보어) 들이 objects와 attribute를 위한 proxy-labels로 사용된다.**
+
+        > 오픈 소스 spaCy의 part-of-speech tagging method를 사용하여 얻어낸다.
+        
+        - 명사들은 보통 object class를 나타낸다.  
+            종종 attribute 정보를 나타낸다. (man/woman - gender, 복수형 - quantity)
+        - 명사구는 보통 형용사-명사의 결합이다.
+            명시적인 attribute 정보를 포함한다. (red helmet, wooden table)
+        - 명사 보어를 얻기 위해 명사구에서 명사를 제거한다.
+            보통 형용사를 포함하고 이것들을 image region과 직접적으로 매칭한다.
+            > 이 concept들(part of caption)의 위치는 알려지지 않기 때문에 우리는 proxy-label을 가장큰 bounding box features $F(I_{b_{max}})$ 와 매칭 시킨다. 
+            
+            [Detecting Twenty-thousand Classes using Image-level Supervision (ECCV2020)](https://arxiv.org/pdf/2201.02605.pdf)
+
+
+### Inference
+
+- inference time에는 모든 object classes, $O^B {\cup} O^N$ 로 구성된 vocabulary 를 고려한다.이때 attribute classes $A$ 도 포함한다.  
+- language model $G$ 를 사용하여 모든 class에 대응되는 text-vector representation을 얻는다. 이때 어떤 text prompt도 사용하지 않고 **모든 object/attribute 동의어를 고려하면서 그것들의 text-vector representation을 평균내어 사용한다.**
+- 최종적으로 box-region representation $F(I_b)$ 와 class-text embedding $G(c)$ 의 similarity 에 sigmoid를 취함으로써 object와 attribute class의 prediction을 얻는다.
+- 각 object와 attribute class에 대해 output을 분리하여 계산하여 class의 존재와 부재를 예측
+
+
+
+
+
+
+
+
+
 
